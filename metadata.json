@@ -1,0 +1,8 @@
+{
+  "name": "BFA CMS Enterprise XML Edition",
+  "description": "Content Management System ultra-portable, modern, dan lincah bertenaga XML Repository untuk konten database dan SQLite3 untuk log audit dan otentikasi staf admin offline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

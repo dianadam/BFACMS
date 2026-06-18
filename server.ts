@@ -734,6 +734,8 @@ app.get('/api/dashboard/stats', async (req, res) => {
 async function startServer() {
   console.log('Bootstrapping SQLite auth-database...');
   await SqliteDb.initialize();
+  console.log('Bootstrapping and synchronizing XML database with MongoDB Atlas...');
+  await XmlDatabase.initialize();
   console.log('Seeding default XML settings...');
   seedDefaultPages();
 

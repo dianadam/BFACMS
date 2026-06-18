@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { XMLRecord, MenuItem } from '../types';
+import client from './mongodb';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -27,170 +28,155 @@ for (const sub of SUB_DIRS) {
   }
 }
 
-// Simple Helpers for XML Escaping & CDATA
-function escapeXmlValue(value: any): string {
-  if (value === undefined || value === null) return '';
-  const str = String(value);
-  // If the string contains XML characters, we will wrap it in CDATA dynamically
-  if (/[<>&'"]/.test(str)) {
-    // Escape CDATA end marker if present to avoid breaking CDATA blocks helper
-    return `<![CDATA[${str.replace(/\]\]>/g, ']]&gt;')}]]>`;
+let mongoDbName = 'bfa_cms';
+if (process.env.MONGODB_URI) {
+  try {
+    const cleanUri = process.env.MONGODB_URI.split('?')[0];
+    const match = cleanUri.match(/\/([a-zA-Z0-9_\-]+)$/);
+    if (match && match[1]) {
+      mongoDbName = match[1];
+    }
+  } catch (err) {
+    // Keep default
   }
-  return str;
 }
 
-function parseXmlValue(raw: string): string {
-  if (!raw) return '';
-  // Check CDATA wrap
-  if (raw.startsWith('<![CDATA[') && raw.endsWith(']]>')) {
-    return raw.substring(9, raw.length - 3).replace(/\]\]&gt;/g, ']]>');
-  }
-  // Simple XML Unescaping
-  return raw
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
-}
+const getMongoDb = () => client.db(mongoDbName);
 
-/**
- * Custom High-Performance XML Parser specifically for BFA CMS records.
- * Robustly parses records, handling nesting and multi-line values safely.
- */
-function deserializeXml(xmlText: string): XMLRecord[] {
-  const records: XMLRecord[] = [];
-  // Match every <record>...</record> segment
-  const recordMatches = xmlText.match(/<record>([\s\S]*?)<\/record>/gi);
-  if (!recordMatches) return [];
-
-  for (const match of recordMatches) {
-    // Extract contents of <record>
-    const innerContent = match.replace(/<\/?record>/gi, '');
-    const record: Partial<XMLRecord> = {};
-    const seoMeta: Record<string, string> = {};
-
-    // Standard Regular expression designed to extract tags along with their values, including CDATA
-    const tagMatches = innerContent.matchAll(/<([a-z0-9_]+)>([\s\S]*?)<\/\1>/gi);
-    
-    for (const tagMatch of tagMatches) {
-      const tagName = tagMatch[1];
-      const tagVal = parseXmlValue(tagMatch[2].trim());
-
-      // If the field belongs to SEO Meta, we group it
-      if (['metaTitle', 'metaDescription', 'keywords', 'openGraphImage', 'schemaMarkup'].includes(tagName)) {
-        seoMeta[tagName] = tagVal;
-      } else {
-        (record as any)[tagName] = tagVal;
-      }
-    }
-
-    if (Object.keys(seoMeta).length > 0) {
-      record.seoMeta = {
-        metaTitle: seoMeta.metaTitle || '',
-        metaDescription: seoMeta.metaDescription || '',
-        keywords: seoMeta.keywords || '',
-        openGraphImage: seoMeta.openGraphImage || '',
-        schemaMarkup: seoMeta.schemaMarkup || '',
-      };
-    }
-
-    if (record.id) {
-      records.push(record as XMLRecord);
-    }
-  }
-
-  return records;
-}
-
-/**
- * Convers XMLRecord list to Enterprise formatted XML with headers.
- */
-function serializeXml(records: XMLRecord[]): string {
-  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-  xml += '<records>\n';
-
-  for (const record of records) {
-    xml += '  <record>\n';
-    
-    // Core attributes
-    xml += `    <id>${escapeXmlValue(record.id)}</id>\n`;
-    xml += `    <slug>${escapeXmlValue(record.slug)}</slug>\n`;
-    xml += `    <title>${escapeXmlValue(record.title)}</title>\n`;
-    xml += `    <description>${escapeXmlValue(record.description)}</description>\n`;
-    xml += `    <content>${escapeXmlValue(record.content)}</content>\n`;
-    xml += `    <image>${escapeXmlValue(record.image)}</image>\n`;
-    xml += `    <status>${escapeXmlValue(record.status)}</status>\n`;
-    xml += `    <created_at>${escapeXmlValue(record.created_at)}</created_at>\n`;
-    xml += `    <updated_at>${escapeXmlValue(record.updated_at)}</updated_at>\n`;
-
-    // Dynamic Module attributes
-    if (record.category) xml += `    <category>${escapeXmlValue(record.category)}</category>\n`;
-    if (record.price) xml += `    <price>${escapeXmlValue(record.price)}</price>\n`;
-    if (record.duration) xml += `    <duration>${escapeXmlValue(record.duration)}</duration>\n`;
-    if (record.coach_id) xml += `    <coach_id>${escapeXmlValue(record.coach_id)}</coach_id>\n`;
-    if (record.specialty) xml += `    <specialty>${escapeXmlValue(record.specialty)}</specialty>\n`;
-    if (record.instagram) xml += `    <instagram>${escapeXmlValue(record.instagram)}</instagram>\n`;
-    if (record.website) xml += `    <website>${escapeXmlValue(record.website)}</website>\n`;
-    if (record.level) xml += `    <level>${escapeXmlValue(record.level)}</level>\n`;
-    if (record.event_date) xml += `    <event_date>${escapeXmlValue(record.event_date)}</event_date>\n`;
-    if (record.location) xml += `    <location>${escapeXmlValue(record.location)}</location>\n`;
-    if (record.testimonial_author) xml += `    <testimonial_author>${escapeXmlValue(record.testimonial_author)}</testimonial_author>\n`;
-    if (record.testimonial_role) xml += `    <testimonial_role>${escapeXmlValue(record.testimonial_role)}</testimonial_role>\n`;
-    if (record.document_url) xml += `    <document_url>${escapeXmlValue(record.document_url)}</document_url>\n`;
-    if (record.document_type) xml += `    <document_type>${escapeXmlValue(record.document_type)}</document_type>\n`;
-    if (record.media_type) xml += `    <media_type>${escapeXmlValue(record.media_type)}</media_type>\n`;
-
-    // SEO Meta attributes inside record
-    if (record.seoMeta) {
-      xml += `    <metaTitle>${escapeXmlValue(record.seoMeta.metaTitle)}</metaTitle>\n`;
-      xml += `    <metaDescription>${escapeXmlValue(record.seoMeta.metaDescription)}</metaDescription>\n`;
-      xml += `    <keywords>${escapeXmlValue(record.seoMeta.keywords)}</keywords>\n`;
-      xml += `    <openGraphImage>${escapeXmlValue(record.seoMeta.openGraphImage)}</openGraphImage>\n`;
-      xml += `    <schemaMarkup>${escapeXmlValue(record.seoMeta.schemaMarkup)}</schemaMarkup>\n`;
-    }
-
-    xml += '  </record>\n';
-  }
-
-  xml += '</records>';
-  return xml;
-}
+const COLLECTIONS = [
+  'pages',
+  'posts',
+  'news',
+  'gallery',
+  'programs',
+  'coaches',
+  'sponsors',
+  'events',
+  'settings',
+  'menus',
+  'sliders',
+  'documents',
+  'testimonials'
+];
 
 export class XmlDatabase {
+  private static cache: Record<string, XMLRecord[]> = {};
+  private static isInitialized = false;
+
   private static getFilePath(filename: string): string {
-    return path.join(DATA_DIR, `${filename}.xml`);
+    return path.join(DATA_DIR, `${filename}.json`);
+  }
+
+  public static isMongoEnabled(): boolean {
+    return !!process.env.MONGODB_URI;
   }
 
   /**
-   * Reads and parses a specific XML table completely offline.
+   * Warm up and synchronize cache from MongoDB Atlas or local JSON files.
    */
-  public static readCollection(collectionName: string): XMLRecord[] {
+  public static async initialize(): Promise<void> {
+    if (this.isInitialized) return;
+
+    if (this.isMongoEnabled()) {
+      try {
+        console.log('[XmlDatabase] Synchronizing collections with MongoDB Atlas...');
+        const db = getMongoDb();
+
+        for (const col of COLLECTIONS) {
+          const colRef = db.collection(col);
+          const docs = await colRef.find({}).toArray();
+
+          if (docs.length > 0) {
+            this.cache[col] = docs.map((d: any) => {
+              const { _id, ...rest } = d;
+              return rest as XMLRecord;
+            });
+          } else {
+            // First run migration: read from local backup if it has items
+            const localRecords = this.readLocalFile(col);
+            this.cache[col] = localRecords;
+            if (localRecords.length > 0) {
+              console.log(`[XmlDatabase] Migrating collection "${col}" to MongoDB Atlas...`);
+              await colRef.insertMany(localRecords);
+            }
+          }
+        }
+        this.isInitialized = true;
+        console.log('[XmlDatabase] Synchronization completed successfully.');
+      } catch (err) {
+        console.error('[XmlDatabase] MongoDB load error, falling back to local files:', err);
+        this.initializeLocalFiles();
+      }
+    } else {
+      this.initializeLocalFiles();
+    }
+  }
+
+  private static initializeLocalFiles(): void {
+    for (const col of COLLECTIONS) {
+      this.cache[col] = this.readLocalFile(col);
+    }
+    this.isInitialized = true;
+    console.log('[XmlDatabase] Offline local JSON datastore loaded.');
+  }
+
+  private static readLocalFile(collectionName: string): XMLRecord[] {
     const filePath = this.getFilePath(collectionName);
     if (!fs.existsSync(filePath)) {
-      // Bootstrap with an empty dataset
-      this.writeCollection(collectionName, []);
       return [];
     }
     try {
-      const xmlText = fs.readFileSync(filePath, 'utf-8');
-      return deserializeXml(xmlText);
+      const content = fs.readFileSync(filePath, 'utf-8');
+      return content.trim() ? JSON.parse(content) : [];
     } catch (err) {
-      console.error(`Error reading XML collection ${collectionName}:`, err);
+      console.error(`Error reading database collection local file ${collectionName}:`, err);
       return [];
     }
   }
 
-  /**
-   * Overwrites a collection's XML content.
-   */
-  public static writeCollection(collectionName: string, records: XMLRecord[]): void {
+  private static writeLocalFile(collectionName: string, records: XMLRecord[]): void {
     const filePath = this.getFilePath(collectionName);
     try {
-      const serialized = serializeXml(records);
+      const serialized = JSON.stringify(records, null, 2);
       fs.writeFileSync(filePath, serialized, 'utf-8');
     } catch (err) {
-      console.error(`Error writing XML collection ${collectionName}:`, err);
+      console.error(`Error writing database collection local file ${collectionName}:`, err);
+    }
+  }
+
+  /**
+   * Reads a specific collection from memory cache.
+   */
+  public static readCollection(collectionName: string): XMLRecord[] {
+    if (!this.isInitialized) {
+      this.initializeLocalFiles();
+    }
+    return this.cache[collectionName] || [];
+  }
+
+  /**
+   * Overwrites a collection (Updates memory cache, backs up locally, and persists to MongoDB Atlas).
+   */
+  public static writeCollection(collectionName: string, records: XMLRecord[]): void {
+    this.cache[collectionName] = records;
+    this.writeLocalFile(collectionName, records);
+
+    if (this.isMongoEnabled()) {
+      const db = getMongoDb();
+      const colRef = db.collection(collectionName);
+
+      colRef.deleteMany({})
+        .then(() => {
+          if (records.length > 0) {
+            return colRef.insertMany(records);
+          }
+        })
+        .then(() => {
+          console.log(`[XmlDatabase - Mongo] Saved collection: ${collectionName}`);
+        })
+        .catch((err) => {
+          console.error(`[XmlDatabase - Mongo] Error syncing collection ${collectionName}:`, err);
+        });
     }
   }
 
@@ -246,9 +232,9 @@ export class XmlDatabase {
         const text = filters.queryText.toLowerCase();
         records = records.filter(
           r =>
-            r.title.toLowerCase().includes(text) ||
-            r.description.toLowerCase().includes(text) ||
-            r.content.toLowerCase().includes(text)
+            (r.title || '').toLowerCase().includes(text) ||
+            (r.description || '').toLowerCase().includes(text) ||
+            (r.content || '').toLowerCase().includes(text)
         );
       }
 
@@ -263,7 +249,7 @@ export class XmlDatabase {
   }
 
   /**
-   * Global cross-repository search engine inside XML repository.
+   * Global cross-repository search engine inside database.
    */
   public static searchAll(queryText: string): Array<{ collection: string; record: XMLRecord }> {
     const collections = [
@@ -287,9 +273,9 @@ export class XmlDatabase {
       const records = this.readCollection(col);
       const matched = records.filter(
         r =>
-          r.title.toLowerCase().includes(text) ||
-          r.description.toLowerCase().includes(text) ||
-          r.content.toLowerCase().includes(text) ||
+          (r.title || '').toLowerCase().includes(text) ||
+          (r.description || '').toLowerCase().includes(text) ||
+          (r.content || '').toLowerCase().includes(text) ||
           (r.slug && r.slug.toLowerCase().includes(text))
       );
       for (const r of matched) {

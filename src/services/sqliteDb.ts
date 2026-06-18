@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { User, AuditLog, UserRole } from '../types';
-import client from './mongodb';
+import client, { checkAndConnect, isMongoActive } from './mongodb';
 
 const DB_DIR = path.join(process.cwd(), 'database');
 if (!fs.existsSync(DB_DIR)) {
@@ -55,21 +55,21 @@ const getMongoDb = () => client.db(mongoDbName);
 export class SqliteDb {
   
   public static isMongoEnabled(): boolean {
-    return !!process.env.MONGODB_URI;
+    return isMongoActive();
   }
 
   public static async initialize(): Promise<void> {
-    if (this.isMongoEnabled()) {
+    const connected = await checkAndConnect();
+    if (connected) {
       try {
-        console.log('[Database] Connecting to MongoDB Atlas...');
-        await client.connect();
         console.log('[Database] Connected to MongoDB successfully. Database name:', mongoDbName);
         await this.seedDefaultUsers();
       } catch (err) {
-        console.error('[Database] MongoDB connection error. Cold starting fallback...', err);
+        console.error('[Database] MongoDB post-connect seeding error. Falling back to local...', err);
         this.initializeLocalJson();
       }
     } else {
+      console.log('[Database] MongoDB connection not active/failed. Initializing local JSON backup...');
       this.initializeLocalJson();
     }
   }

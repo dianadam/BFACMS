@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { XMLRecord, MenuItem } from '../types';
-import client from './mongodb';
+import client, { checkAndConnect, isMongoActive } from './mongodb';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -68,7 +68,7 @@ export class XmlDatabase {
   }
 
   public static isMongoEnabled(): boolean {
-    return !!process.env.MONGODB_URI;
+    return isMongoActive();
   }
 
   /**
@@ -77,7 +77,10 @@ export class XmlDatabase {
   public static async initialize(): Promise<void> {
     if (this.isInitialized) return;
 
-    if (this.isMongoEnabled()) {
+    // Ensure connection is up
+    const connected = await checkAndConnect();
+
+    if (connected) {
       try {
         console.log('[XmlDatabase] Synchronizing collections with MongoDB Atlas...');
         const db = getMongoDb();
@@ -108,6 +111,7 @@ export class XmlDatabase {
         this.initializeLocalFiles();
       }
     } else {
+      console.log('[XmlDatabase] MongoDB is not active/failed. Warmstarting local JSON backup...');
       this.initializeLocalFiles();
     }
   }
